@@ -7,7 +7,7 @@
 
 static int loop(void);
 
-static SOCKET server_socket;
+static SOCKET server_s;
 
 int
 main(void)
@@ -31,15 +31,15 @@ main(void)
 		WSACleanup();
 		return 1;
 	}
-	server_socket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-	if (server_socket == INVALID_SOCKET) {
+	server_s = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+	if (server_s == INVALID_SOCKET) {
 		code = WSAGetLastError();
 		fprintf(stderr, "socket() error: %d\n", code);
 		WSACleanup();
 		freeaddrinfo(result);
 		return 1;
 	}
-	code = bind( server_socket, result->ai_addr, (int)result->ai_addrlen);
+	code = bind( server_s, result->ai_addr, (int)result->ai_addrlen);
 	if (code == SOCKET_ERROR) {
 		code = WSAGetLastError();
 		fprintf(stderr, "bind() error: %d\n", code);
@@ -47,7 +47,7 @@ main(void)
 		freeaddrinfo(result);
 		return 1;
 	}
-	code = listen( server_socket, SOMAXCONN );
+	code = listen( server_s, SOMAXCONN );
 	if (code == SOCKET_ERROR) {
 		code = WSAGetLastError();
 		fprintf(stderr, "listen() error: %d\n", code);
@@ -58,22 +58,28 @@ main(void)
 	while (loop());
 	WSACleanup();
 	freeaddrinfo(result);
-	closesocket(server_socket);
+	closesocket(server_s);
 	return 0;
 }
 
 static int
 loop(void)
 {
-	SOCKET client_socket;
+	SOCKET client_s;
+	struct sockaddr_in client_addr;
+	int addrlen = sizeof(client_addr);
+	char ip[INET_ADDRSTRLEN];
 	int code;
-	client_socket = accept(server_socket, NULL, NULL);
-	if (client_socket == INVALID_SOCKET) {
+	int port;
+	client_s = accept(server_s, (struct sockaddr *)&client_addr, &addrlen);
+	if (client_s == INVALID_SOCKET) {
 		code = WSAGetLastError();
 		fprintf(stderr, "accept() error: %d\n", code);
 		return 0;
 	}
-	closesocket(client_socket);
-	puts("received request");
+	inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
+	port = ntohs(client_addr.sin_port);
+	closesocket(client_s);
+	printf("Received request from %s:%d\n", ip, port);
 	return 1;
 }
