@@ -36,6 +36,22 @@ main(void)
 		freeaddrinfo(result);
 		return 1;
 	}
+	code = bind( server_socket, result->ai_addr, (int)result->ai_addrlen);
+	if (code == SOCKET_ERROR) {
+		code = WSAGetLastError();
+		fprintf(stderr, "bind() error: %d\n", code);
+		WSACleanup();
+		freeaddrinfo(result);
+		return 1;
+	}
+	code = listen( server_socket, SOMAXCONN );
+	if (code == SOCKET_ERROR) {
+		code = WSAGetLastError();
+		fprintf(stderr, "listen() error: %d\n", code);
+		WSACleanup();
+		freeaddrinfo(result);
+		return 1;
+	}
 	puts("Hello world!");
 	WSACleanup();
 	freeaddrinfo(result);
