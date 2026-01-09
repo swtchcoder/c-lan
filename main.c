@@ -2,13 +2,13 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
-static const WORD version = MAKEWORD(2, 2);
-static const char host[] = "localhost";
-static const char port[] = "50000";
+#define HOST "localhost"
+#define PORT "50000"
 
 int
 main(void)
 {
+	const WORD version = MAKEWORD(2, 2);
 	WSADATA wsadata;
 	struct addrinfo *result = NULL, hints;
 	SOCKET server_socket = INVALID_SOCKET;
@@ -17,12 +17,12 @@ main(void)
 		fprintf(stderr, "Missing the winsock dll");
 		return 1;
 	}
-	ZeroMemory(&hints, sizeof (hints));
+	ZeroMemory(&hints, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_PASSIVE;
-	code = getaddrinfo(host, port, &hints, &result);
+	code = getaddrinfo(HOST, PORT, &hints, &result);
 	if (code != 0) {
 		fprintf(stderr, "getaddrinfo() error: %d\n", code);
 		WSACleanup();
