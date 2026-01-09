@@ -5,13 +5,16 @@
 #define HOST "localhost"
 #define PORT "50000"
 
+static int loop(void);
+
+static SOCKET server_socket;
+
 int
 main(void)
 {
 	const WORD version = MAKEWORD(2, 2);
 	WSADATA wsadata;
-	struct addrinfo *result = NULL, hints;
-	SOCKET server_socket = INVALID_SOCKET;
+	struct addrinfo *result, hints;
 	int code;
 	if (WSAStartup(version, &wsadata)) {
 		fprintf(stderr, "Missing the winsock dll");
@@ -52,9 +55,25 @@ main(void)
 		freeaddrinfo(result);
 		return 1;
 	}
-	puts("Hello world!");
+	while (loop());
 	WSACleanup();
 	freeaddrinfo(result);
 	closesocket(server_socket);
 	return 0;
+}
+
+static int
+loop(void)
+{
+	SOCKET client_socket;
+	int code;
+	client_socket = accept(server_socket, NULL, NULL);
+	if (client_socket == INVALID_SOCKET) {
+		code = WSAGetLastError();
+		fprintf(stderr, "accept() error: %d\n", code);
+		return 0;
+	}
+	closesocket(client_socket);
+	puts("received request");
+	return 1;
 }
