@@ -1,13 +1,17 @@
 #include <stdio.h>
 #include <winsock2.h>
+#include <windows.h>
 #include <ws2tcpip.h>
 
-#define HOST "localhost"
 #define PORT "50000"
+#define BUFFER_SIZE 4096
 
-static int loop(void);
+static DWORD WINAPI tcp_thread(LPVOID lpParam);
+static DWORD WINAPI udp_thread(LPVOID lpParam);
 
 static SOCKET server_tcp_s;
+static SOCKET server_udp_s;
+static int running = 1;
 
 int
 main(void)
@@ -15,8 +19,8 @@ main(void)
 	const WORD version = MAKEWORD(2, 2);
 	WSADATA wsadata;
 	struct addrinfo *result, hints;
-	static SOCKET server_udp_s;
 	int code;
+	HANDLE _tcp_thread, _udp_thread;
 	if (WSAStartup(version, &wsadata)) {
 		fprintf(stderr, "Missing the winsock dll");
 		return 1;
@@ -25,7 +29,7 @@ main(void)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	code = getaddrinfo(HOST, PORT, &hints, &result);
+	code = getaddrinfo(NULL, PORT, &hints, &result);
 	if (code != 0) {
 		fprintf(stderr, "getaddrinfo() error: %d\n", code);
 		WSACleanup();
@@ -39,20 +43,20 @@ main(void)
 		freeaddrinfo(result);
 		return 1;
 	}
-	code = bind( server_tcp_s, result->ai_addr, (int)result->ai_addrlen);
-	if (code == SOCKET_ERROR) {
+	if (bind( server_tcp_s, result->ai_addr, (int)result->ai_addrlen) == SOCKET_ERROR) {
 		code = WSAGetLastError();
 		fprintf(stderr, "bind() error: %d\n", code);
 		WSACleanup();
 		freeaddrinfo(result);
+		closesocket(server_tcp_s);
 		return 1;
 	}
-	code = listen(server_tcp_s, SOMAXCONN);
-	if (code == SOCKET_ERROR) {
+	if (listen(server_tcp_s, SOMAXCONN) == SOCKET_ERROR) {
 		code = WSAGetLastError();
 		fprintf(stderr, "listen() error: %d\n", code);
 		WSACleanup();
 		freeaddrinfo(result);
+		closesocket(server_tcp_s);
 		return 1;
 	}
 	server_udp_s = socket(result->ai_family, SOCK_DGRAM, IPPROTO_UDP);
@@ -63,15 +67,18 @@ main(void)
 		freeaddrinfo(result);
 		return 1;
 	}
-	code = bind( server_udp_s, result->ai_addr, (int)result->ai_addrlen);
-	if (code == SOCKET_ERROR) {
+	if (bind( server_udp_s, result->ai_addr, (int)result->ai_addrlen) == SOCKET_ERROR) {
 		code = WSAGetLastError();
 		fprintf(stderr, "bind() error: %d\n", code);
 		WSACleanup();
 		freeaddrinfo(result);
+		closesocket(server_udp_s);
 		return 1;
 	}
-	while (loop());
+	_tcp_thread = CreateThread(NULL, 0, tcp_thread, NULL, 0, NULL);
+	_udp_thread = CreateThread(NULL, 0, udp_thread, NULL, 0, NULL);
+	WaitForSingleObject(_tcp_thread, INFINITE);
+	WaitForSingleObject(_udp_thread, INFINITE);
 	WSACleanup();
 	freeaddrinfo(result);
 	closesocket(server_tcp_s);
@@ -79,8 +86,8 @@ main(void)
 	return 0;
 }
 
-static int
-loop(void)
+static DWORD WINAPI
+tcp_thread(LPVOID lpParam)
 {
 	SOCKET client_s;
 	struct sockaddr_in client_addr;
@@ -88,15 +95,38 @@ loop(void)
 	char ip[INET_ADDRSTRLEN];
 	int code;
 	int port;
-	client_s = accept(server_tcp_s, (struct sockaddr *)&client_addr, &addrlen);
-	if (client_s == INVALID_SOCKET) {
-		code = WSAGetLastError();
-		fprintf(stderr, "accept() error: %d\n", code);
-		return 0;
+	while (running) {
+		puts("(tcp) Waiting for connection");
+		client_s = accept(server_tcp_s, (struct sockaddr *)&client_addr, &addrlen);
+		if (client_s == INVALID_SOCKET) {
+			code = WSAGetLastError();
+			fprintf(stderr, "accept() error: %d\n", code);
+			return 1;
+		}
+		inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
+		port = ntohs(client_addr.sin_port);
+		closesocket(client_s);
+		printf("(tcp) Received request from %s:%d\n", ip, port);
 	}
-	inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
-	port = ntohs(client_addr.sin_port);
-	closesocket(client_s);
-	printf("Received request from %s:%d\n", ip, port);
-	return 1;
+	return 0;
+}
+
+static DWORD WINAPI
+udp_thread(LPVOID lpParam)
+{
+	int bytes;
+	char buffer[BUFFER_SIZE];
+	struct sockaddr_in client_addr;
+	int addrlen = sizeof(client_addr);
+	char ip[INET_ADDRSTRLEN];
+	int port;
+	while (running) {
+		bytes = recvfrom(server_udp_s, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &addrlen);
+		if (bytes > 0) {
+			inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
+			port = ntohs(client_addr.sin_port);
+			printf("(udp) Received %d bytes from %s:%d\n", bytes, ip, port);
+		}
+	}
+	return 0;
 }
