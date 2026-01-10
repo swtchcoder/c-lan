@@ -7,7 +7,7 @@
 
 static int loop(void);
 
-static SOCKET server_s;
+static SOCKET server_tcp_s;
 
 int
 main(void)
@@ -15,6 +15,7 @@ main(void)
 	const WORD version = MAKEWORD(2, 2);
 	WSADATA wsadata;
 	struct addrinfo *result, hints;
+	static SOCKET server_udp_s;
 	int code;
 	if (WSAStartup(version, &wsadata)) {
 		fprintf(stderr, "Missing the winsock dll");
@@ -23,7 +24,6 @@ main(void)
 	ZeroMemory(&hints, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_PASSIVE;
 	code = getaddrinfo(HOST, PORT, &hints, &result);
 	if (code != 0) {
@@ -31,15 +31,15 @@ main(void)
 		WSACleanup();
 		return 1;
 	}
-	server_s = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-	if (server_s == INVALID_SOCKET) {
+	server_tcp_s = socket(result->ai_family, SOCK_STREAM, IPPROTO_TCP);
+	if (server_tcp_s == INVALID_SOCKET) {
 		code = WSAGetLastError();
 		fprintf(stderr, "socket() error: %d\n", code);
 		WSACleanup();
 		freeaddrinfo(result);
 		return 1;
 	}
-	code = bind( server_s, result->ai_addr, (int)result->ai_addrlen);
+	code = bind( server_tcp_s, result->ai_addr, (int)result->ai_addrlen);
 	if (code == SOCKET_ERROR) {
 		code = WSAGetLastError();
 		fprintf(stderr, "bind() error: %d\n", code);
@@ -47,7 +47,7 @@ main(void)
 		freeaddrinfo(result);
 		return 1;
 	}
-	code = listen( server_s, SOMAXCONN );
+	code = listen(server_tcp_s, SOMAXCONN);
 	if (code == SOCKET_ERROR) {
 		code = WSAGetLastError();
 		fprintf(stderr, "listen() error: %d\n", code);
@@ -55,10 +55,27 @@ main(void)
 		freeaddrinfo(result);
 		return 1;
 	}
+	server_udp_s = socket(result->ai_family, SOCK_DGRAM, IPPROTO_UDP);
+	if (server_udp_s == INVALID_SOCKET) {
+		code = WSAGetLastError();
+		fprintf(stderr, "socket() error: %d\n", code);
+		WSACleanup();
+		freeaddrinfo(result);
+		return 1;
+	}
+	code = bind( server_udp_s, result->ai_addr, (int)result->ai_addrlen);
+	if (code == SOCKET_ERROR) {
+		code = WSAGetLastError();
+		fprintf(stderr, "bind() error: %d\n", code);
+		WSACleanup();
+		freeaddrinfo(result);
+		return 1;
+	}
 	while (loop());
 	WSACleanup();
 	freeaddrinfo(result);
-	closesocket(server_s);
+	closesocket(server_tcp_s);
+	closesocket(server_udp_s);
 	return 0;
 }
 
@@ -71,7 +88,7 @@ loop(void)
 	char ip[INET_ADDRSTRLEN];
 	int code;
 	int port;
-	client_s = accept(server_s, (struct sockaddr *)&client_addr, &addrlen);
+	client_s = accept(server_tcp_s, (struct sockaddr *)&client_addr, &addrlen);
 	if (client_s == INVALID_SOCKET) {
 		code = WSAGetLastError();
 		fprintf(stderr, "accept() error: %d\n", code);
