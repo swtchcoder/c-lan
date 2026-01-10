@@ -3,11 +3,15 @@
 #include <windows.h>
 #include <ws2tcpip.h>
 
-#define PORT "50000"
+#define _STR(x) #x
+#define STR(x) _STR(x)
+
+#define PORT 50000
 #define BUFFER_SIZE 4096
 
 static DWORD WINAPI tcp_thread(LPVOID lpParam);
 static DWORD WINAPI udp_thread(LPVOID lpParam);
+static int broadcast(void);
 
 static SOCKET server_tcp_s;
 static SOCKET server_udp_s;
@@ -25,11 +29,12 @@ main(void)
 		fprintf(stderr, "Missing the winsock dll");
 		return 1;
 	}
+	/* Setup TCP server socket */
 	ZeroMemory(&hints, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	code = getaddrinfo(NULL, PORT, &hints, &result);
+	code = getaddrinfo(NULL, STR(PORT), &hints, &result);
 	if (code != 0) {
 		fprintf(stderr, "getaddrinfo() error: %d\n", code);
 		WSACleanup();
@@ -59,12 +64,14 @@ main(void)
 		closesocket(server_tcp_s);
 		return 1;
 	}
+	/* Setup UDP server socket */
 	server_udp_s = socket(result->ai_family, SOCK_DGRAM, IPPROTO_UDP);
 	if (server_udp_s == INVALID_SOCKET) {
 		code = WSAGetLastError();
 		fprintf(stderr, "socket() error: %d\n", code);
 		WSACleanup();
 		freeaddrinfo(result);
+		closesocket(server_tcp_s);
 		return 1;
 	}
 	if (bind( server_udp_s, result->ai_addr, (int)result->ai_addrlen) == SOCKET_ERROR) {
@@ -72,11 +79,20 @@ main(void)
 		fprintf(stderr, "bind() error: %d\n", code);
 		WSACleanup();
 		freeaddrinfo(result);
+		closesocket(server_tcp_s);
 		closesocket(server_udp_s);
 		return 1;
 	}
 	_tcp_thread = CreateThread(NULL, 0, tcp_thread, NULL, 0, NULL);
 	_udp_thread = CreateThread(NULL, 0, udp_thread, NULL, 0, NULL);
+	/* Broadcast presence */
+	if (!broadcast()) {
+		running = 0;
+		WSACleanup();
+		freeaddrinfo(result);
+		closesocket(server_tcp_s);
+		closesocket(server_udp_s);
+	}
 	WaitForSingleObject(_tcp_thread, INFINITE);
 	WaitForSingleObject(_udp_thread, INFINITE);
 	WSACleanup();
@@ -129,4 +145,27 @@ udp_thread(LPVOID lpParam)
 		}
 	}
 	return 0;
+}
+
+static int
+broadcast(void)
+{
+	SOCKET broadcast_s;
+	int code;
+	struct sockaddr_in broadcast_addr;
+	int enable = 1;
+	broadcast_s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (broadcast_s == INVALID_SOCKET) {
+		code = WSAGetLastError();
+		fprintf(stderr, "socket() error: %d\n", code);
+		return 0;
+	}
+	setsockopt(broadcast_s, SOL_SOCKET, SO_BROADCAST, (const char *)&enable, sizeof(enable));
+	broadcast_addr.sin_family = AF_INET;
+	broadcast_addr.sin_port   = htons(PORT);
+	broadcast_addr.sin_addr.s_addr = INADDR_BROADCAST;
+	const char *msg = "Hello world!";
+	sendto(broadcast_s, msg, (int)strlen(msg), 0, (struct sockaddr *)&broadcast_addr, sizeof(broadcast_addr));
+	closesocket(broadcast_s);
+	return 1;
 }
